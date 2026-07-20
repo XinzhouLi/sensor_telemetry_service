@@ -6,6 +6,8 @@ Go and PostgreSQL take-home project for collecting and viewing industrial sensor
 
 ```text
 backend/                 Go HTTP service
+database/migrations/     PostgreSQL schema changes
+database/seeds/          Local demonstration data
 docker-compose.yml       Local development environment
 ```
 
@@ -18,7 +20,12 @@ docker compose up --build
 - Backend health check: <http://localhost:8080/health>
 - PostgreSQL: `localhost:5432`
 
-This first commit only establishes the project structure. Sensor ingestion, queries, summaries, overview behavior, and tests will be implemented in separate commits.
+## Database design
+
+- Schema migrations and local seed data are kept separate.
+- Duplicate sensor timestamps keep the first reading.
+- Reading status is stored at ingestion; sensor health is calculated when queried.
+- Docker initializes schema and seed data only for a new database volume.
 
 ## AI usage
 
