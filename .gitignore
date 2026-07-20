@@ -1,0 +1,27 @@
+# System files
+.DS_Store
+
+# Local Codex files
+.codex/
+.codex-*/
+.codx/
+codex/
+codx/
+AGENTS.md
+
+# Task documents
+*.pdf
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Go build and test output
+bin/
+coverage/
+*.out
+*.test
+
+# Temporary files
+tmp/

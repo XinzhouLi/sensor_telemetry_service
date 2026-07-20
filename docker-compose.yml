@@ -1,0 +1,32 @@
+services:
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-telemetry}
+      POSTGRES_USER: ${POSTGRES_USER:-telemetry}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-telemetry}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-telemetry} -d ${POSTGRES_DB:-telemetry}"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      PORT: ${BACKEND_PORT:-8080}
+      DATABASE_URL: postgres://${POSTGRES_USER:-telemetry}:${POSTGRES_PASSWORD:-telemetry}@database:5432/${POSTGRES_DB:-telemetry}?sslmode=disable
+    ports:
+      - "${BACKEND_PORT:-8080}:${BACKEND_PORT:-8080}"
+    depends_on:
+      database:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
