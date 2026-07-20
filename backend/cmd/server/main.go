@@ -22,6 +22,7 @@ func main() {
 		log.Fatalf("connect to database: %v", err)
 	}
 	defer db.Close()
+	store := database.NewStore(db)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -30,7 +31,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              ":" + port,
-		Handler:           api.NewServer(db),
+		Handler:           api.NewServer(store),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

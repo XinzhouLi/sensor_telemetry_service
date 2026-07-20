@@ -18,6 +18,7 @@ docker compose up --build
 ```
 
 - Backend health check: <http://localhost:8080/health>
+- Sensor overview: <http://localhost:8080/sensors>
 - PostgreSQL: `localhost:5432`
 
 ## Database design
@@ -29,4 +30,4 @@ docker compose up --build
 
 ## AI usage
 
-OpenAI Codex was used to read the supplied requirements and create the initial repository structure. All code will be reviewed and understood before submission.
+OpenAI Codex was used to review the requirements and assist with the project structure, database design, API implementation, and tests. All submitted code is reviewed and understood before delivery.

@@ -1,25 +1,38 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"sensor-telemetry-service/backend/internal/telemetry"
 )
 
-type Server struct {
-	database *pgxpool.Pool
+type Store interface {
+	Ping(context.Context) error
+	ListSensors(context.Context) ([]telemetry.Sensor, error)
 }
 
-func NewServer(database *pgxpool.Pool) http.Handler {
-	server := &Server{database: database}
+type Server struct {
+	store Store
+	now   func() time.Time
+}
+
+func NewServer(store Store) http.Handler {
+	return newServer(store, time.Now)
+}
+
+func newServer(store Store, now func() time.Time) http.Handler {
+	server := &Server{store: store, now: now}
 	router := http.NewServeMux()
 	router.HandleFunc("GET /health", server.health)
+	router.HandleFunc("GET /sensors", server.listSensors)
 	return router
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	if err := s.database.Ping(r.Context()); err != nil {
+	if err := s.store.Ping(r.Context()); err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
 		return
 	}

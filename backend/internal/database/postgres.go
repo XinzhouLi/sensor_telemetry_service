@@ -25,3 +25,15 @@ func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 
 	return pool, nil
 }
+
+type Store struct {
+	pool *pgxpool.Pool
+}
+
+func NewStore(pool *pgxpool.Pool) *Store {
+	return &Store{pool: pool}
+}
+
+func (s *Store) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}
