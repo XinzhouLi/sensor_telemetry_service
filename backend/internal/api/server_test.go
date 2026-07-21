@@ -30,6 +30,11 @@ type fakeStore struct {
 	readSensorID    string
 	readFrom        time.Time
 	readTo          time.Time
+	summaries       []telemetry.SummaryBucket
+	summaryErr      error
+	summarySensorID string
+	summaryFrom     time.Time
+	summaryTo       time.Time
 }
 
 func (s *fakeStore) Ping(context.Context) error {
@@ -65,6 +70,18 @@ func (s *fakeStore) ListReadings(
 	s.readFrom = from
 	s.readTo = to
 	return s.readings, s.readErr
+}
+
+func (s *fakeStore) SummarizeReadings(
+	_ context.Context,
+	sensorID string,
+	from time.Time,
+	to time.Time,
+) ([]telemetry.SummaryBucket, error) {
+	s.summarySensorID = sensorID
+	s.summaryFrom = from
+	s.summaryTo = to
+	return s.summaries, s.summaryErr
 }
 
 func TestListSensors(t *testing.T) {
