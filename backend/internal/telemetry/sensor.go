@@ -48,6 +48,7 @@ const (
 
 const healthyWindow = 15 * time.Minute
 
+// Calculate health when requested because it changes over time.
 func SensorHealth(latest *Reading, now time.Time) Health {
 	if latest == nil {
 		return HealthNeverReported

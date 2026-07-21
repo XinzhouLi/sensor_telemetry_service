@@ -27,6 +27,7 @@ func NewServer(store Store) http.Handler {
 	return newServer(store, time.Now)
 }
 
+// Pass in the clock so health checks can use a fixed time in tests.
 func newServer(store Store, now func() time.Time) http.Handler {
 	server := &Server{store: store, now: now}
 	router := http.NewServeMux()

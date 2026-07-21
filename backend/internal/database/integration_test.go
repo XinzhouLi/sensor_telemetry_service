@@ -26,6 +26,7 @@ func newIntegrationStore(t *testing.T) (*Store, *pgxpool.Pool) {
 	}
 	t.Cleanup(adminPool.Close)
 
+	// Give each database test its own schema so it cannot change other test data.
 	schemaName := "sensor_test_" + randomHex(t, 8)
 	schemaIdentifier := pgx.Identifier{schemaName}.Sanitize()
 	if _, err := adminPool.Exec(ctx, "CREATE SCHEMA "+schemaIdentifier); err != nil {

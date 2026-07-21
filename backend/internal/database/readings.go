@@ -66,6 +66,7 @@ func (s *Store) InsertReadings(
 		return []telemetry.WriteResult{}, nil
 	}
 
+	// Save all valid items together. If the database fails, save none of them.
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin reading transaction: %w", err)
@@ -91,6 +92,7 @@ func (s *Store) InsertReadings(
 			continue
 		}
 
+		// Keep the first reading. Compare values to tell a retry from a conflict.
 		existing, err := findReading(ctx, tx, sensorID, reading.RecordedAt)
 		if err != nil {
 			return nil, err

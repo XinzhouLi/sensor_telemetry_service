@@ -10,6 +10,7 @@ import (
 	"sensor-telemetry-service/backend/internal/telemetry"
 )
 
+// Get every sensor and its latest reading with one database query.
 const listSensorsQuery = `
 SELECT
     sensor.id,

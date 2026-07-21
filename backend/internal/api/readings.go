@@ -66,6 +66,7 @@ func (s *Server) listReadings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+// Use the same time rules for reading and summary requests.
 func parseTimeWindow(r *http.Request) (time.Time, time.Time, error) {
 	fromText := r.URL.Query().Get("from")
 	if fromText == "" {
@@ -111,6 +112,7 @@ func (s *Server) ingestReadings(w http.ResponseWriter, r *http.Request) {
 	response := ingestResponse{Results: make([]ingestResult, len(items))}
 	validReadings := make([]telemetry.Reading, 0, len(items))
 	validIndexes := make([]int, 0, len(items))
+	// Check each item on its own so one bad item does not stop the batch.
 	for index, item := range items {
 		reading, err := decodeReading(item, sensor)
 		if err != nil {
@@ -126,6 +128,7 @@ func (s *Server) ingestReadings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Save the status with the reading so old data does not change when sensor limits change.
 	writeResults, err := s.store.InsertReadings(r.Context(), sensor.ID, validReadings)
 	if err != nil || len(writeResults) != len(validReadings) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})

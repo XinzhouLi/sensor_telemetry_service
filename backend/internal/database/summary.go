@@ -10,6 +10,7 @@ import (
 	"sensor-telemetry-service/backend/internal/telemetry"
 )
 
+// Group readings by UTC hour in PostgreSQL so Go gets only the final summary.
 const summarizeReadingsQuery = `
 SELECT
     date_trunc('hour', recorded_at, 'UTC') AS bucket_start,
@@ -51,6 +52,7 @@ func (s *Store) SummarizeReadings(
 		); err != nil {
 			return nil, fmt.Errorf("scan reading summary: %w", err)
 		}
+		// These values are nil when the hour has no valid readings.
 		bucket.Average = nullableFloat(average)
 		bucket.Minimum = nullableFloat(minimum)
 		bucket.Maximum = nullableFloat(maximum)

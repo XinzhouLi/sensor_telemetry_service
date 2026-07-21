@@ -4,8 +4,7 @@ INSERT INTO sensors (id, name, unit, valid_min, valid_max) VALUES
     ('stack-temp-1', 'Stack Temperature 1', '°C', 0, 600)
 ON CONFLICT (id) DO NOTHING;
 
--- Negative IDs are reserved for development fixtures. They keep this seed
--- idempotent without consuming or colliding with the positive identity sequence.
+-- Sample readings use fixed negative IDs so they do not use normal positive IDs.
 INSERT INTO readings (id, sensor_id, recorded_at, value, status)
 OVERRIDING SYSTEM VALUE
 VALUES
