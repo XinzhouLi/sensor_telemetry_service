@@ -14,9 +14,17 @@ import (
 )
 
 type fakeStore struct {
-	pingErr error
-	sensors []telemetry.Sensor
-	listErr error
+	pingErr         error
+	sensors         []telemetry.Sensor
+	listErr         error
+	findSensor      telemetry.Sensor
+	findSensorFound bool
+	findSensorErr   error
+	writeResults    []telemetry.WriteResult
+	writeErr        error
+	writtenSensorID string
+	writtenReadings []telemetry.Reading
+	writeCalls      int
 }
 
 func (s *fakeStore) Ping(context.Context) error {
@@ -25,6 +33,21 @@ func (s *fakeStore) Ping(context.Context) error {
 
 func (s *fakeStore) ListSensors(context.Context) ([]telemetry.Sensor, error) {
 	return s.sensors, s.listErr
+}
+
+func (s *fakeStore) FindSensor(context.Context, string) (telemetry.Sensor, bool, error) {
+	return s.findSensor, s.findSensorFound, s.findSensorErr
+}
+
+func (s *fakeStore) InsertReadings(
+	_ context.Context,
+	sensorID string,
+	readings []telemetry.Reading,
+) ([]telemetry.WriteResult, error) {
+	s.writeCalls++
+	s.writtenSensorID = sensorID
+	s.writtenReadings = append([]telemetry.Reading(nil), readings...)
+	return s.writeResults, s.writeErr
 }
 
 func TestListSensors(t *testing.T) {

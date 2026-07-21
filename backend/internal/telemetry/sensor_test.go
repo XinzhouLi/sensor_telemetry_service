@@ -35,6 +35,29 @@ func TestSensorHealth(t *testing.T) {
 	}
 }
 
+func TestClassifyReading(t *testing.T) {
+	sensor := Sensor{ValidMin: 0, ValidMax: 250}
+	tests := []struct {
+		name  string
+		value float64
+		want  ReadingStatus
+	}{
+		{name: "minimum boundary", value: 0, want: ReadingStatusValid},
+		{name: "maximum boundary", value: 250, want: ReadingStatusValid},
+		{name: "inside range", value: 41.2, want: ReadingStatusValid},
+		{name: "below range", value: -0.001, want: ReadingStatusOutOfRange},
+		{name: "above range", value: 250.001, want: ReadingStatusOutOfRange},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := ClassifyReading(sensor, test.value); got != test.want {
+				t.Fatalf("ClassifyReading() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func readingAt(recordedAt time.Time, status ReadingStatus) *Reading {
 	return &Reading{RecordedAt: recordedAt, Status: status}
 }

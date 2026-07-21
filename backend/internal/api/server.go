@@ -12,6 +12,8 @@ import (
 type Store interface {
 	Ping(context.Context) error
 	ListSensors(context.Context) ([]telemetry.Sensor, error)
+	FindSensor(context.Context, string) (telemetry.Sensor, bool, error)
+	InsertReadings(context.Context, string, []telemetry.Reading) ([]telemetry.WriteResult, error)
 }
 
 type Server struct {
@@ -28,6 +30,7 @@ func newServer(store Store, now func() time.Time) http.Handler {
 	router := http.NewServeMux()
 	router.HandleFunc("GET /health", server.health)
 	router.HandleFunc("GET /sensors", server.listSensors)
+	router.HandleFunc("POST /sensors/{id}/readings", server.ingestReadings)
 	return router
 }
 

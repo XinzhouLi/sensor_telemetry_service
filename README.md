@@ -19,12 +19,13 @@ docker compose up --build
 
 - Backend health check: <http://localhost:8080/health>
 - Sensor overview: <http://localhost:8080/sensors>
+- Batch reading ingestion: `POST /sensors/{id}/readings`
 - PostgreSQL: `localhost:5432`
 
 ## Database design
 
 - Schema migrations and local seed data are kept separate.
-- Duplicate sensor timestamps keep the first reading.
+- Duplicate sensor timestamps keep the first reading; different values are reported as conflicts.
 - Reading status is stored at ingestion; sensor health is calculated when queried.
 - Docker initializes schema and seed data only for a new database volume.
 

@@ -15,6 +15,20 @@ type Reading struct {
 	Status     ReadingStatus
 }
 
+type WriteOutcome string
+
+const (
+	WriteOutcomeStored    WriteOutcome = "stored"
+	WriteOutcomeDuplicate WriteOutcome = "duplicate"
+	WriteOutcomeConflict  WriteOutcome = "conflict"
+)
+
+type WriteResult struct {
+	Outcome        WriteOutcome
+	ExistingValue  float64
+	ExistingStatus ReadingStatus
+}
+
 type Sensor struct {
 	ID            string
 	Name          string
@@ -42,4 +56,11 @@ func SensorHealth(latest *Reading, now time.Time) Health {
 		return HealthOK
 	}
 	return HealthStale
+}
+
+func ClassifyReading(sensor Sensor, value float64) ReadingStatus {
+	if value < sensor.ValidMin || value > sensor.ValidMax {
+		return ReadingStatusOutOfRange
+	}
+	return ReadingStatusValid
 }
