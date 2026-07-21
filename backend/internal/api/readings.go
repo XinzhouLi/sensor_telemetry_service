@@ -26,6 +26,71 @@ type ingestResult struct {
 	Error         string                  `json:"error,omitempty"`
 }
 
+type readingResponse struct {
+	RecordedAt string                  `json:"recorded_at"`
+	Value      float64                 `json:"value"`
+	Status     telemetry.ReadingStatus `json:"status"`
+}
+
+func (s *Server) listReadings(w http.ResponseWriter, r *http.Request) {
+	from, to, err := parseTimeWindow(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	_, found, err := s.store.FindSensor(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	if !found {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "sensor not found"})
+		return
+	}
+
+	readings, err := s.store.ListReadings(r.Context(), r.PathValue("id"), from, to)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	response := make([]readingResponse, len(readings))
+	for index, reading := range readings {
+		response[index] = readingResponse{
+			RecordedAt: reading.RecordedAt.UTC().Format(time.RFC3339Nano),
+			Value:      reading.Value,
+			Status:     reading.Status,
+		}
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func parseTimeWindow(r *http.Request) (time.Time, time.Time, error) {
+	fromText := r.URL.Query().Get("from")
+	if fromText == "" {
+		return time.Time{}, time.Time{}, errors.New("from is required")
+	}
+	toText := r.URL.Query().Get("to")
+	if toText == "" {
+		return time.Time{}, time.Time{}, errors.New("to is required")
+	}
+
+	from, err := time.Parse(time.RFC3339, fromText)
+	if err != nil {
+		return time.Time{}, time.Time{}, errors.New("from must be a valid RFC 3339 timestamp")
+	}
+	to, err := time.Parse(time.RFC3339, toText)
+	if err != nil {
+		return time.Time{}, time.Time{}, errors.New("to must be a valid RFC 3339 timestamp")
+	}
+	if !from.Before(to) {
+		return time.Time{}, time.Time{}, errors.New("from must be before to")
+	}
+
+	return from.UTC(), to.UTC(), nil
+}
+
 func (s *Server) ingestReadings(w http.ResponseWriter, r *http.Request) {
 	items, err := decodeBatch(r)
 	if err != nil {

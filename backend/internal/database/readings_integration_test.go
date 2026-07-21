@@ -76,3 +76,42 @@ func TestInsertReadingsRollbackIntegration(t *testing.T) {
 		t.Fatalf("readings after rollback = %d, want 0", count)
 	}
 }
+
+func TestListReadingsIntegration(t *testing.T) {
+	store, _ := newIntegrationStore(t)
+	ctx := context.Background()
+	from := time.Date(2031, time.January, 1, 14, 0, 0, 0, time.UTC)
+
+	_, err := store.InsertReadings(ctx, "nox-analyzer-1", []telemetry.Reading{
+		{RecordedAt: from.Add(-time.Minute), Value: 10, Status: telemetry.ReadingStatusValid},
+		{RecordedAt: from, Value: 20, Status: telemetry.ReadingStatusValid},
+		{RecordedAt: from.Add(30 * time.Minute), Value: 512, Status: telemetry.ReadingStatusOutOfRange},
+		{RecordedAt: from.Add(time.Hour), Value: 30, Status: telemetry.ReadingStatusValid},
+		{RecordedAt: from.Add(61 * time.Minute), Value: 40, Status: telemetry.ReadingStatusValid},
+	})
+	if err != nil {
+		t.Fatalf("InsertReadings(): %v", err)
+	}
+
+	readings, err := store.ListReadings(ctx, "nox-analyzer-1", from, from.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("ListReadings(): %v", err)
+	}
+	if len(readings) != 2 {
+		t.Fatalf("len(readings) = %d, want 2", len(readings))
+	}
+	if !readings[0].RecordedAt.Equal(from) || readings[0].Value != 20 || readings[0].Status != telemetry.ReadingStatusValid {
+		t.Errorf("first reading = %#v", readings[0])
+	}
+	if !readings[1].RecordedAt.Equal(from.Add(30*time.Minute)) || readings[1].Value != 512 || readings[1].Status != telemetry.ReadingStatusOutOfRange {
+		t.Errorf("second reading = %#v", readings[1])
+	}
+
+	empty, err := store.ListReadings(ctx, "nox-analyzer-1", from.Add(2*time.Hour), from.Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("empty ListReadings(): %v", err)
+	}
+	if empty == nil || len(empty) != 0 {
+		t.Fatalf("empty readings = %#v, want non-nil empty slice", empty)
+	}
+}

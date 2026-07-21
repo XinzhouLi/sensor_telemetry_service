@@ -20,6 +20,43 @@ SELECT recorded_at, value, status::text
 FROM readings
 WHERE sensor_id = $1 AND recorded_at = $2`
 
+const listReadingsQuery = `
+SELECT recorded_at, value, status::text
+FROM readings
+WHERE sensor_id = $1
+  AND recorded_at >= $2
+  AND recorded_at < $3
+ORDER BY recorded_at ASC`
+
+func (s *Store) ListReadings(
+	ctx context.Context,
+	sensorID string,
+	from time.Time,
+	to time.Time,
+) ([]telemetry.Reading, error) {
+	rows, err := s.pool.Query(ctx, listReadingsQuery, sensorID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("query readings: %w", err)
+	}
+	defer rows.Close()
+
+	readings := make([]telemetry.Reading, 0)
+	for rows.Next() {
+		var reading telemetry.Reading
+		var status string
+		if err := rows.Scan(&reading.RecordedAt, &reading.Value, &status); err != nil {
+			return nil, fmt.Errorf("scan reading: %w", err)
+		}
+		reading.Status = telemetry.ReadingStatus(status)
+		readings = append(readings, reading)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate readings: %w", err)
+	}
+
+	return readings, nil
+}
+
 func (s *Store) InsertReadings(
 	ctx context.Context,
 	sensorID string,

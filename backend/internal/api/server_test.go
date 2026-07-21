@@ -25,6 +25,11 @@ type fakeStore struct {
 	writtenSensorID string
 	writtenReadings []telemetry.Reading
 	writeCalls      int
+	readings        []telemetry.Reading
+	readErr         error
+	readSensorID    string
+	readFrom        time.Time
+	readTo          time.Time
 }
 
 func (s *fakeStore) Ping(context.Context) error {
@@ -48,6 +53,18 @@ func (s *fakeStore) InsertReadings(
 	s.writtenSensorID = sensorID
 	s.writtenReadings = append([]telemetry.Reading(nil), readings...)
 	return s.writeResults, s.writeErr
+}
+
+func (s *fakeStore) ListReadings(
+	_ context.Context,
+	sensorID string,
+	from time.Time,
+	to time.Time,
+) ([]telemetry.Reading, error) {
+	s.readSensorID = sensorID
+	s.readFrom = from
+	s.readTo = to
+	return s.readings, s.readErr
 }
 
 func TestListSensors(t *testing.T) {
