@@ -9,6 +9,7 @@ void main() {
   testWidgets('shows a loading indicator while sensors are loading', (
     tester,
   ) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
     final result = Completer<List<Sensor>>();
     await tester.pumpWidget(_app(() => result.future));
 
@@ -19,6 +20,7 @@ void main() {
   });
 
   testWidgets('shows sensor reading and health details', (tester) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
     await tester.pumpWidget(_app(() async => [_reportedSensor()]));
     await tester.pumpAndSettle();
 
@@ -31,6 +33,7 @@ void main() {
   });
 
   testWidgets('shows a sensor without a latest reading', (tester) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
     const sensor = Sensor(
       id: 'stack-temp-1',
       name: 'Stack Temperature 1',
@@ -45,6 +48,7 @@ void main() {
   });
 
   testWidgets('shows an empty state when no sensors exist', (tester) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
     await tester.pumpWidget(_app(() async => []));
     await tester.pumpAndSettle();
 
@@ -52,6 +56,7 @@ void main() {
   });
 
   testWidgets('shows an error and retries the request', (tester) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
     var calls = 0;
     Future<List<Sensor>> loadSensors() async {
       calls++;
@@ -73,6 +78,26 @@ void main() {
     expect(calls, 2);
     expect(find.text('NOx Analyzer 1'), findsOneWidget);
     expect(find.text('Could not load sensors.'), findsNothing);
+  });
+
+  testWidgets('refreshes sensors every 15 seconds', (tester) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
+    var calls = 0;
+
+    await tester.pumpWidget(
+      _app(() async {
+        calls++;
+        return [_reportedSensor()];
+      }),
+    );
+    await tester.pumpAndSettle();
+
+    expect(calls, 1);
+
+    await tester.pump(const Duration(seconds: 15));
+    await tester.pump();
+
+    expect(calls, 2);
   });
 }
 

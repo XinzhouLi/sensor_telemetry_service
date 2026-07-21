@@ -8,6 +8,7 @@ Go and PostgreSQL take-home project for collecting and viewing industrial sensor
 backend/                 Go HTTP service
 database/migrations/     PostgreSQL schema changes
 database/seeds/          Local demonstration data
+frontend/                Flutter Web dashboard served by Nginx
 docker-compose.yml       Local development environment
 ```
 
@@ -33,6 +34,8 @@ curl http://localhost:8080/health
 ```
 
 The response should be `{"status":"ok"}`. PostgreSQL is available on `localhost:5432`, and development seed data makes all three sensor health states visible immediately.
+
+Open `http://localhost:3000` to view the dashboard. It reads sensor overviews through the Nginx `/api` proxy and refreshes them every 15 seconds.
 
 ## API
 
@@ -67,6 +70,14 @@ TEST_DATABASE_URL='postgres://telemetry:telemetry@localhost:5432/telemetry?sslmo
 
 Integration tests create and remove an isolated PostgreSQL schema. Summary bucketing is tested against PostgreSQL because the production behavior uses `date_trunc` and filtered aggregates rather than a duplicate Go implementation.
 
+Run the frontend checks:
+
+```sh
+cd frontend
+flutter analyze
+flutter test
+```
+
 ## Design decisions
 
 - Schema migrations and local seed data are kept separate.
@@ -88,4 +99,4 @@ Approximately ___ hours.
 
 ## AI usage
 
-OpenAI Codex was used to review the requirements and assist with the project structure, database design, API implementation, and tests. All submitted code is reviewed and understood before delivery.
+OpenAI Codex was used to review the requirements and assist with the project structure, database design, API implementation, dashboard, and tests. All submitted code is reviewed and understood before delivery.
