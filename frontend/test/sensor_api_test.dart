@@ -103,4 +103,75 @@ void main() {
       throwsFormatException,
     );
   });
+
+  test('loads hourly summaries with a UTC time window', () async {
+    final client = MockClient((request) async {
+      expect(request.url.path, '/api/sensors/nox-analyzer-1/summary');
+      expect(request.url.queryParameters['from'], '2026-07-20T14:00:00.000Z');
+      expect(request.url.queryParameters['to'], '2026-07-20T16:00:00.000Z');
+      return http.Response('''
+        [{
+          "bucket_start": "2026-07-20T08:00:00-06:00",
+          "average": 41.2,
+          "minimum": 40.9,
+          "maximum": 41.5,
+          "valid_count": 2,
+          "out_of_range_count": 1
+        }]
+      ''', 200);
+    });
+
+    final summaries = await SensorApi(client).listSummaries(
+      'nox-analyzer-1',
+      DateTime.parse('2026-07-20T08:00:00-06:00'),
+      DateTime.parse('2026-07-20T10:00:00-06:00'),
+    );
+
+    expect(summaries, hasLength(1));
+    expect(
+      summaries.single.bucketStart.toUtc(),
+      DateTime.parse('2026-07-20T14:00:00Z'),
+    );
+    expect(summaries.single.validCount, 2);
+  });
+
+  test('returns an empty summary list', () async {
+    final client = MockClient((_) async => http.Response('[]', 200));
+
+    final summaries = await SensorApi(client).listSummaries(
+      'nox-analyzer-1',
+      DateTime.parse('2026-07-20T14:00:00Z'),
+      DateTime.parse('2026-07-20T15:00:00Z'),
+    );
+
+    expect(summaries, isEmpty);
+  });
+
+  test('rejects a non-success summary response', () async {
+    final client = MockClient((_) async => http.Response('unavailable', 503));
+    final api = SensorApi(client);
+
+    expect(
+      api.listSummaries(
+        'nox-analyzer-1',
+        DateTime.parse('2026-07-20T14:00:00Z'),
+        DateTime.parse('2026-07-20T15:00:00Z'),
+      ),
+      throwsException,
+    );
+  });
+
+  test('rejects a non-array summary response', () async {
+    final client = MockClient((_) async => http.Response('{}', 200));
+    final api = SensorApi(client);
+
+    expect(
+      api.listSummaries(
+        'nox-analyzer-1',
+        DateTime.parse('2026-07-20T14:00:00Z'),
+        DateTime.parse('2026-07-20T15:00:00Z'),
+      ),
+      throwsFormatException,
+    );
+  });
 }

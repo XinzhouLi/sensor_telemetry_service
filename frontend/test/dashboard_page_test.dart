@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sensor_dashboard/dashboard_page.dart';
 import 'package:sensor_dashboard/sensor.dart';
+import 'package:sensor_dashboard/summary.dart';
 
 void main() {
   testWidgets('shows a loading indicator while sensors are loading', (
@@ -107,7 +108,7 @@ void main() {
     await tester.pumpWidget(_app(() async => [_reportedSensor()]));
     await tester.pumpAndSettle();
 
-    expect(find.text('Select a sensor to view readings.'), findsOneWidget);
+    expect(find.text('Select a sensor to query its data.'), findsOneWidget);
     final button = tester.widget<FilledButton>(
       find.byKey(const Key('query-readings')),
     );
@@ -370,17 +371,187 @@ void main() {
 
     expect(readingCalls, 0);
   });
+
+  testWidgets('queries summaries with the shared time window', (tester) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
+    String? sensorID;
+    DateTime? receivedFrom;
+    DateTime? receivedTo;
+    await tester.pumpWidget(
+      _app(
+        () async => [_reportedSensor()],
+        loadSummaries: (id, from, to) async {
+          sensorID = id;
+          receivedFrom = from;
+          receivedTo = to;
+          return [
+            SummaryBucket(
+              bucketStart: DateTime.parse('2026-07-20T08:00:00-06:00'),
+              average: 41.2,
+              minimum: 40.9,
+              maximum: 41.5,
+              validCount: 2,
+              outOfRangeCount: 1,
+            ),
+            SummaryBucket(
+              bucketStart: DateTime.parse('2026-07-20T15:00:00Z'),
+              average: null,
+              minimum: null,
+              maximum: null,
+              validCount: 0,
+              outOfRangeCount: 2,
+            ),
+          ];
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _selectSensor(tester, 'nox-analyzer-1');
+    await _selectSummary(tester);
+    await tester.enterText(
+      find.byKey(const Key('from-field')),
+      '2026-07-20T08:00:00-06:00',
+    );
+    await tester.enterText(
+      find.byKey(const Key('to-field')),
+      '2026-07-20T10:00:00-06:00',
+    );
+
+    await tester.tap(find.byKey(const Key('query-summary')));
+    await tester.pumpAndSettle();
+
+    expect(sensorID, 'nox-analyzer-1');
+    expect(receivedFrom!.toUtc(), DateTime.parse('2026-07-20T14:00:00Z'));
+    expect(receivedTo!.toUtc(), DateTime.parse('2026-07-20T16:00:00Z'));
+    expect(find.text('2026-07-20T14:00:00.000Z'), findsOneWidget);
+    expect(find.text('41.2 ppm'), findsWidgets);
+    expect(find.text('40.9 ppm'), findsOneWidget);
+    expect(find.text('41.5 ppm'), findsOneWidget);
+    expect(find.text('—'), findsNWidgets(3));
+    expect(find.text('Out of range'), findsOneWidget);
+  });
+
+  testWidgets('validates summary windows without calling the API', (
+    tester,
+  ) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
+    var calls = 0;
+    await tester.pumpWidget(
+      _app(
+        () async => [_reportedSensor()],
+        loadSummaries: (_, _, _) async {
+          calls++;
+          return [];
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _selectSensor(tester, 'nox-analyzer-1');
+    await _selectSummary(tester);
+    await tester.enterText(find.byKey(const Key('from-field')), 'bad');
+
+    await tester.tap(find.byKey(const Key('query-summary')));
+    await tester.pump();
+
+    expect(
+      find.text('From must be a valid RFC3339 timestamp.'),
+      findsOneWidget,
+    );
+    expect(calls, 0);
+  });
+
+  testWidgets('disables Query while summary is loading', (tester) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
+    final result = Completer<List<SummaryBucket>>();
+    await tester.pumpWidget(
+      _app(
+        () async => [_reportedSensor()],
+        loadSummaries: (_, _, _) => result.future,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _selectSensor(tester, 'nox-analyzer-1');
+    await _selectSummary(tester);
+
+    await tester.tap(find.byKey(const Key('query-summary')));
+    await tester.pump();
+
+    final button = tester.widget<FilledButton>(
+      find.byKey(const Key('query-summary')),
+    );
+    expect(button.onPressed, isNull);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    result.complete([]);
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('shows empty and error summary results', (tester) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
+    var fail = false;
+    await tester.pumpWidget(
+      _app(
+        () async => [_reportedSensor()],
+        loadSummaries: (_, _, _) async {
+          if (fail) {
+            throw Exception('database unavailable');
+          }
+          return [];
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _selectSensor(tester, 'nox-analyzer-1');
+    await _selectSummary(tester);
+
+    await tester.tap(find.byKey(const Key('query-summary')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('No summary buckets in this time window.'),
+      findsOneWidget,
+    );
+
+    fail = true;
+    await tester.tap(find.byKey(const Key('query-summary')));
+    await tester.pumpAndSettle();
+    expect(find.text('Could not load summary.'), findsOneWidget);
+  });
+
+  testWidgets('overview refresh does not query summaries', (tester) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
+    var summaryCalls = 0;
+    await tester.pumpWidget(
+      _app(
+        () async => [_reportedSensor()],
+        loadSummaries: (_, _, _) async {
+          summaryCalls++;
+          return [];
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _selectSensor(tester, 'nox-analyzer-1');
+    await _selectSummary(tester);
+
+    await tester.pump(const Duration(seconds: 15));
+    await tester.pump();
+
+    expect(summaryCalls, 0);
+  });
 }
 
 Widget _app(
   Future<List<Sensor>> Function() loadSensors, {
   Future<List<Reading>> Function(String, DateTime, DateTime)? loadReadings,
+  Future<List<SummaryBucket>> Function(String, DateTime, DateTime)?
+  loadSummaries,
   DateTime Function() now = DateTime.now,
 }) {
   return MaterialApp(
     home: DashboardPage(
       loadSensors: loadSensors,
       loadReadings: loadReadings ?? (_, _, _) async => [],
+      loadSummaries: loadSummaries ?? (_, _, _) async => [],
       now: now,
     ),
   );
@@ -390,6 +561,13 @@ Future<void> _selectSensor(WidgetTester tester, String sensorID) async {
   await tester.tap(find.byKey(Key('sensor-card-$sensorID')));
   await tester.pump();
   await tester.ensureVisible(find.byKey(const Key('query-readings')));
+  await tester.pump();
+}
+
+Future<void> _selectSummary(WidgetTester tester) async {
+  await tester.tap(find.text('Summary'));
+  await tester.pump();
+  await tester.ensureVisible(find.byKey(const Key('query-summary')));
   await tester.pump();
 }
 

@@ -3,17 +3,23 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'sensor.dart';
+import 'summary.dart';
+
+enum _DetailView { readings, summary }
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({
     super.key,
     required this.loadSensors,
     required this.loadReadings,
+    required this.loadSummaries,
     this.now = DateTime.now,
   });
 
   final Future<List<Sensor>> Function() loadSensors;
   final Future<List<Reading>> Function(String, DateTime, DateTime) loadReadings;
+  final Future<List<SummaryBucket>> Function(String, DateTime, DateTime)
+  loadSummaries;
   final DateTime Function() now;
 
   @override
@@ -34,6 +40,12 @@ class _DashboardPageState extends State<DashboardPage> {
   bool _hasQueriedReadings = false;
   String? _readingsError;
   int _readingRequestID = 0;
+  _DetailView _detailView = _DetailView.readings;
+  List<SummaryBucket>? _summaries;
+  bool _summaryLoading = false;
+  bool _hasQueriedSummary = false;
+  String? _summaryError;
+  int _summaryRequestID = 0;
 
   @override
   void initState() {
@@ -70,7 +82,7 @@ class _DashboardPageState extends State<DashboardPage> {
         if (_selectedSensorID != null &&
             !sensors.any((sensor) => sensor.id == _selectedSensorID)) {
           _selectedSensorID = null;
-          _clearReadingResult();
+          _clearQueryResults();
         }
       });
     } catch (_) {
@@ -134,7 +146,7 @@ class _DashboardPageState extends State<DashboardPage> {
           },
         ),
         const SizedBox(height: 24),
-        _buildReadingSection(),
+        _buildDetailSection(),
       ],
     );
   }
@@ -146,15 +158,20 @@ class _DashboardPageState extends State<DashboardPage> {
     setState(() {
       _selectedSensorID = sensorID;
       _readingRequestID++;
-      _clearReadingResult();
+      _summaryRequestID++;
+      _clearQueryResults();
     });
   }
 
-  void _clearReadingResult() {
+  void _clearQueryResults() {
     _readings = null;
     _readingsLoading = false;
     _hasQueriedReadings = false;
     _readingsError = null;
+    _summaries = null;
+    _summaryLoading = false;
+    _hasQueriedSummary = false;
+    _summaryError = null;
   }
 
   Sensor? get _selectedSensor {
@@ -172,27 +189,9 @@ class _DashboardPageState extends State<DashboardPage> {
       return;
     }
 
-    final fromText = _fromController.text.trim();
-    final toText = _toController.text.trim();
-    if (fromText.isEmpty || toText.isEmpty) {
-      setState(() => _readingsError = 'From and to are required.');
-      return;
-    }
-
-    final from = _parseRFC3339(fromText);
-    if (from == null) {
-      setState(
-        () => _readingsError = 'From must be a valid RFC3339 timestamp.',
-      );
-      return;
-    }
-    final to = _parseRFC3339(toText);
-    if (to == null) {
-      setState(() => _readingsError = 'To must be a valid RFC3339 timestamp.');
-      return;
-    }
-    if (!from.isBefore(to)) {
-      setState(() => _readingsError = 'From must be before to.');
+    final window = _timeWindow();
+    if (window.error != null) {
+      setState(() => _readingsError = window.error);
       return;
     }
 
@@ -205,7 +204,11 @@ class _DashboardPageState extends State<DashboardPage> {
     });
 
     try {
-      final readings = await widget.loadReadings(sensor.id, from, to);
+      final readings = await widget.loadReadings(
+        sensor.id,
+        window.from!,
+        window.to!,
+      );
       if (!mounted || requestID != _readingRequestID) {
         return;
       }
@@ -224,21 +227,110 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  Widget _buildReadingSection() {
+  Future<void> _querySummary() async {
     final sensor = _selectedSensor;
+    if (sensor == null || _summaryLoading) {
+      return;
+    }
+
+    final window = _timeWindow();
+    if (window.error != null) {
+      setState(() => _summaryError = window.error);
+      return;
+    }
+
+    final requestID = ++_summaryRequestID;
+    setState(() {
+      _summaryLoading = true;
+      _hasQueriedSummary = true;
+      _summaries = null;
+      _summaryError = null;
+    });
+
+    try {
+      final summaries = await widget.loadSummaries(
+        sensor.id,
+        window.from!,
+        window.to!,
+      );
+      if (!mounted || requestID != _summaryRequestID) {
+        return;
+      }
+      setState(() {
+        _summaries = summaries;
+        _summaryLoading = false;
+      });
+    } catch (_) {
+      if (!mounted || requestID != _summaryRequestID) {
+        return;
+      }
+      setState(() {
+        _summaryLoading = false;
+        _summaryError = 'Could not load summary.';
+      });
+    }
+  }
+
+  ({DateTime? from, DateTime? to, String? error}) _timeWindow() {
+    final fromText = _fromController.text.trim();
+    final toText = _toController.text.trim();
+    if (fromText.isEmpty || toText.isEmpty) {
+      return (from: null, to: null, error: 'From and to are required.');
+    }
+
+    final from = _parseRFC3339(fromText);
+    if (from == null) {
+      return (
+        from: null,
+        to: null,
+        error: 'From must be a valid RFC3339 timestamp.',
+      );
+    }
+    final to = _parseRFC3339(toText);
+    if (to == null) {
+      return (
+        from: null,
+        to: null,
+        error: 'To must be a valid RFC3339 timestamp.',
+      );
+    }
+    if (!from.isBefore(to)) {
+      return (from: null, to: null, error: 'From must be before to.');
+    }
+    return (from: from, to: to, error: null);
+  }
+
+  Widget _buildDetailSection() {
+    final sensor = _selectedSensor;
+    final showingReadings = _detailView == _DetailView.readings;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Reading window',
-              style: Theme.of(context).textTheme.titleLarge,
+            Text('Sensor data', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 16),
+            SegmentedButton<_DetailView>(
+              key: const Key('detail-view'),
+              segments: const [
+                ButtonSegment(
+                  value: _DetailView.readings,
+                  label: Text('Readings'),
+                ),
+                ButtonSegment(
+                  value: _DetailView.summary,
+                  label: Text('Summary'),
+                ),
+              ],
+              selected: {_detailView},
+              onSelectionChanged: (selection) {
+                setState(() => _detailView = selection.single);
+              },
             ),
             const SizedBox(height: 16),
             if (sensor == null)
-              const Text('Select a sensor to view readings.')
+              const Text('Select a sensor to query its data.')
             else
               Text(sensor.name, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 16),
@@ -270,58 +362,122 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                 ),
                 FilledButton(
-                  key: const Key('query-readings'),
-                  onPressed: sensor == null || _readingsLoading
+                  key: Key(
+                    showingReadings ? 'query-readings' : 'query-summary',
+                  ),
+                  onPressed:
+                      sensor == null ||
+                          (showingReadings ? _readingsLoading : _summaryLoading)
                       ? null
-                      : _queryReadings,
+                      : showingReadings
+                      ? _queryReadings
+                      : _querySummary,
                   child: const Text('Query'),
                 ),
               ],
             ),
             if (sensor != null) ...[
               const SizedBox(height: 16),
-              if (_readingsError != null)
-                Text(
-                  _readingsError!,
-                  key: const Key('readings-error'),
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                )
-              else if (_readingsLoading)
-                const Center(child: CircularProgressIndicator())
-              else if (_hasQueriedReadings && _readings!.isEmpty)
-                const Text('No readings in this time window.')
-              else if (_readings != null)
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    columns: const [
-                      DataColumn(label: Text('Recorded at (UTC)')),
-                      DataColumn(label: Text('Value')),
-                      DataColumn(label: Text('Status')),
-                    ],
-                    rows: _readings!
-                        .map(
-                          (reading) => DataRow(
-                            cells: [
-                              DataCell(
-                                Text(
-                                  reading.recordedAt.toUtc().toIso8601String(),
-                                ),
-                              ),
-                              DataCell(Text('${reading.value} ${sensor.unit}')),
-                              DataCell(Text(reading.status)),
-                            ],
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ),
+              if (showingReadings)
+                _buildReadingResult(sensor)
+              else
+                _buildSummaryResult(sensor),
             ],
           ],
         ),
       ),
     );
   }
+
+  Widget _buildReadingResult(Sensor sensor) {
+    if (_readingsError != null) {
+      return Text(
+        _readingsError!,
+        key: const Key('readings-error'),
+        style: TextStyle(color: Theme.of(context).colorScheme.error),
+      );
+    }
+    if (_readingsLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_hasQueriedReadings && _readings!.isEmpty) {
+      return const Text('No readings in this time window.');
+    }
+    if (_readings == null) {
+      return const SizedBox.shrink();
+    }
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        columns: const [
+          DataColumn(label: Text('Recorded at (UTC)')),
+          DataColumn(label: Text('Value')),
+          DataColumn(label: Text('Status')),
+        ],
+        rows: _readings!
+            .map(
+              (reading) => DataRow(
+                cells: [
+                  DataCell(Text(reading.recordedAt.toUtc().toIso8601String())),
+                  DataCell(Text('${reading.value} ${sensor.unit}')),
+                  DataCell(Text(reading.status)),
+                ],
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _buildSummaryResult(Sensor sensor) {
+    if (_summaryError != null) {
+      return Text(
+        _summaryError!,
+        key: const Key('summary-error'),
+        style: TextStyle(color: Theme.of(context).colorScheme.error),
+      );
+    }
+    if (_summaryLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_hasQueriedSummary && _summaries!.isEmpty) {
+      return const Text('No summary buckets in this time window.');
+    }
+    if (_summaries == null) {
+      return const SizedBox.shrink();
+    }
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        columns: const [
+          DataColumn(label: Text('Bucket start (UTC)')),
+          DataColumn(label: Text('Average')),
+          DataColumn(label: Text('Minimum')),
+          DataColumn(label: Text('Maximum')),
+          DataColumn(label: Text('Valid')),
+          DataColumn(label: Text('Out of range')),
+        ],
+        rows: _summaries!
+            .map(
+              (bucket) => DataRow(
+                cells: [
+                  DataCell(Text(bucket.bucketStart.toUtc().toIso8601String())),
+                  DataCell(Text(_statistic(bucket.average, sensor.unit))),
+                  DataCell(Text(_statistic(bucket.minimum, sensor.unit))),
+                  DataCell(Text(_statistic(bucket.maximum, sensor.unit))),
+                  DataCell(Text('${bucket.validCount}')),
+                  DataCell(Text('${bucket.outOfRangeCount}')),
+                ],
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+}
+
+String _statistic(double? value, String unit) {
+  return value == null ? '—' : '$value $unit';
 }
 
 final _rfc3339Pattern = RegExp(

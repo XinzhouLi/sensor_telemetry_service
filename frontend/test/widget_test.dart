@@ -9,6 +9,7 @@ void main() {
       SensorDashboardApp(
         loadSensors: () async => [],
         loadReadings: (_, _, _) async => [],
+        loadSummaries: (_, _, _) async => [],
       ),
     );
     await tester.pumpAndSettle();
