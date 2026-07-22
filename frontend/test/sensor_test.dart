@@ -36,4 +36,27 @@ void main() {
     expect(sensor.latestReading, isNull);
     expect(sensor.health, 'never_reported');
   });
+
+  test('parses valid and out-of-range readings', () {
+    final readings = [
+      Reading.fromJson({
+        'recorded_at': '2026-07-20T08:03:00-06:00',
+        'value': 41.2,
+        'status': 'valid',
+      }),
+      Reading.fromJson({
+        'recorded_at': '2026-07-20T14:04:00Z',
+        'value': 512,
+        'status': 'out_of_range',
+      }),
+    ];
+
+    expect(
+      readings[0].recordedAt.toUtc().toIso8601String(),
+      '2026-07-20T14:03:00.000Z',
+    );
+    expect(readings[0].status, 'valid');
+    expect(readings[1].value, 512);
+    expect(readings[1].status, 'out_of_range');
+  });
 }

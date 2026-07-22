@@ -16,7 +16,7 @@ class Sensor {
       health: json['health'] as String,
       latestReading: latestReading == null
           ? null
-          : LatestReading.fromJson(latestReading as Map<String, dynamic>),
+          : Reading.fromJson(latestReading as Map<String, dynamic>),
     );
   }
 
@@ -24,18 +24,18 @@ class Sensor {
   final String name;
   final String unit;
   final String health;
-  final LatestReading? latestReading;
+  final Reading? latestReading;
 }
 
-class LatestReading {
-  const LatestReading({
+class Reading {
+  const Reading({
     required this.recordedAt,
     required this.value,
     required this.status,
   });
 
-  factory LatestReading.fromJson(Map<String, dynamic> json) {
-    return LatestReading(
+  factory Reading.fromJson(Map<String, dynamic> json) {
+    return Reading(
       recordedAt: DateTime.parse(json['recorded_at'] as String),
       value: (json['value'] as num).toDouble(),
       status: json['status'] as String,

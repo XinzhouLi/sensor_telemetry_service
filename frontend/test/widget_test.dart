@@ -5,7 +5,12 @@ import 'package:sensor_dashboard/main.dart';
 void main() {
   testWidgets('renders the dashboard title', (tester) async {
     addTearDown(() => tester.pumpWidget(const SizedBox()));
-    await tester.pumpWidget(SensorDashboardApp(loadSensors: () async => []));
+    await tester.pumpWidget(
+      SensorDashboardApp(
+        loadSensors: () async => [],
+        loadReadings: (_, _, _) async => [],
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Sensor Telemetry Dashboard'), findsOneWidget);

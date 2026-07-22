@@ -26,4 +26,33 @@ class SensorApi {
         .map((item) => Sensor.fromJson(item as Map<String, dynamic>))
         .toList();
   }
+
+  Future<List<Reading>> listReadings(
+    String sensorID,
+    DateTime from,
+    DateTime to,
+  ) async {
+    final endpoint =
+        Uri.parse(
+          '${_endpoint.toString()}/${Uri.encodeComponent(sensorID)}/readings',
+        ).replace(
+          queryParameters: {
+            'from': from.toUtc().toIso8601String(),
+            'to': to.toUtc().toIso8601String(),
+          },
+        );
+    final response = await _client.get(endpoint);
+    if (response.statusCode != 200) {
+      throw Exception('failed to load readings');
+    }
+
+    final body = jsonDecode(response.body);
+    if (body is! List) {
+      throw const FormatException('reading response must be an array');
+    }
+
+    return body
+        .map((item) => Reading.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
 }

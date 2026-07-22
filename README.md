@@ -35,7 +35,7 @@ curl http://localhost:8080/health
 
 The response should be `{"status":"ok"}`. PostgreSQL is available on `localhost:5432`, and development seed data makes all three sensor health states visible immediately.
 
-Open `http://localhost:3000` to view the dashboard. It reads sensor overviews through the Nginx `/api` proxy and refreshes them every 15 seconds.
+Open `http://localhost:3000` to view the dashboard. It refreshes sensor overviews every 15 seconds and supports reading-window queries after selecting a sensor.
 
 ## API
 
