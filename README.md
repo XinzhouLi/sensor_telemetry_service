@@ -95,7 +95,7 @@ flutter test
 
 ## Time spent
 
-Approximately ___ hours.
+Approximately 12 hours.
 
 ## AI usage
 
