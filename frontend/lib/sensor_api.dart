@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'ingest.dart';
 import 'sensor.dart';
 import 'summary.dart';
 
@@ -84,5 +85,35 @@ class SensorApi {
     return body
         .map((item) => SummaryBucket.fromJson(item as Map<String, dynamic>))
         .toList();
+  }
+
+  Future<IngestResponse> ingestReading(
+    String sensorID,
+    DateTime recordedAt,
+    double value,
+  ) async {
+    final endpoint = Uri.parse(
+      '${_endpoint.toString()}/${Uri.encodeComponent(sensorID)}/readings',
+    );
+    final response = await _client.post(
+      endpoint,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode([
+        {'recorded_at': recordedAt.toUtc().toIso8601String(), 'value': value},
+      ]),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('failed to add reading');
+    }
+
+    final body = jsonDecode(response.body);
+    if (body is! Map<String, dynamic>) {
+      throw const FormatException('ingest response must be an object');
+    }
+    final result = IngestResponse.fromJson(body);
+    if (result.results.length != 1) {
+      throw const FormatException('ingest response must contain one result');
+    }
+    return result;
   }
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sensor_dashboard/dashboard_page.dart';
+import 'package:sensor_dashboard/ingest.dart';
 import 'package:sensor_dashboard/sensor.dart';
 import 'package:sensor_dashboard/summary.dart';
 
@@ -538,6 +539,217 @@ void main() {
 
     expect(summaryCalls, 0);
   });
+
+  testWidgets('disables ingestion until a sensor is selected', (tester) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
+    await tester.pumpWidget(
+      _app(
+        () async => [_reportedSensor()],
+        now: () => DateTime.parse('2026-07-21T15:00:00Z'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _ensureIngestVisible(tester);
+
+    expect(find.text('Select a sensor to add a reading.'), findsOneWidget);
+    expect(
+      _field(tester, const Key('recorded-at-field')).controller!.text,
+      '2026-07-21T15:00:00.000Z',
+    );
+    final button = tester.widget<FilledButton>(
+      find.byKey(const Key('submit-reading')),
+    );
+    expect(button.onPressed, isNull);
+  });
+
+  testWidgets('rejects invalid ingestion fields without calling the API', (
+    tester,
+  ) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
+    var calls = 0;
+    await tester.pumpWidget(
+      _app(
+        () async => [_reportedSensor()],
+        ingestReading: (_, _, _) async {
+          calls++;
+          return _storedResponse();
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _selectSensor(tester, 'nox-analyzer-1');
+    await _ensureIngestVisible(tester);
+
+    final recordedAt = find.byKey(const Key('recorded-at-field'));
+    final value = find.byKey(const Key('reading-value-field'));
+    final submit = find.byKey(const Key('submit-reading'));
+
+    await tester.enterText(recordedAt, '');
+    await tester.tap(submit);
+    await tester.pump();
+    expect(find.text('Recorded at is required.'), findsOneWidget);
+
+    await tester.enterText(recordedAt, 'bad');
+    await tester.tap(submit);
+    await tester.pump();
+    expect(
+      find.text('Recorded at must be a valid RFC3339 timestamp.'),
+      findsOneWidget,
+    );
+
+    await tester.enterText(recordedAt, '2026-07-21T15:00:00Z');
+    await tester.tap(submit);
+    await tester.pump();
+    expect(find.text('Value is required.'), findsOneWidget);
+
+    await tester.enterText(value, 'NaN');
+    await tester.tap(submit);
+    await tester.pump();
+    expect(find.text('Value must be a finite number.'), findsOneWidget);
+    expect(calls, 0);
+  });
+
+  testWidgets('submits an offset timestamp and displays stored status', (
+    tester,
+  ) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
+    String? sensorID;
+    DateTime? receivedAt;
+    double? receivedValue;
+    await tester.pumpWidget(
+      _app(
+        () async => [_reportedSensor()],
+        ingestReading: (id, recordedAt, value) async {
+          sensorID = id;
+          receivedAt = recordedAt;
+          receivedValue = value;
+          return _storedResponse(status: 'out_of_range');
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _selectSensor(tester, 'nox-analyzer-1');
+    await _ensureIngestVisible(tester);
+    await tester.enterText(
+      find.byKey(const Key('recorded-at-field')),
+      '2026-07-21T09:00:00-06:00',
+    );
+    await tester.enterText(find.byKey(const Key('reading-value-field')), '512');
+
+    await tester.tap(find.byKey(const Key('submit-reading')));
+    await tester.pumpAndSettle();
+
+    expect(sensorID, 'nox-analyzer-1');
+    expect(receivedAt!.toUtc(), DateTime.parse('2026-07-21T15:00:00Z'));
+    expect(receivedValue, 512);
+    expect(find.text('stored'), findsOneWidget);
+    expect(find.text('out_of_range'), findsOneWidget);
+  });
+
+  testWidgets('shows duplicate conflict and rejected outcomes', (tester) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
+    var call = 0;
+    final responses = [
+      _ingestResponse(
+        IngestResult(index: 0, outcome: 'duplicate', status: 'valid'),
+        duplicates: 1,
+      ),
+      _ingestResponse(
+        IngestResult(
+          index: 0,
+          outcome: 'conflict',
+          status: 'valid',
+          existingValue: 41.2,
+        ),
+        conflicts: 1,
+      ),
+      _ingestResponse(
+        IngestResult(index: 0, outcome: 'rejected', error: 'value is required'),
+        rejected: 1,
+      ),
+    ];
+    await tester.pumpWidget(
+      _app(
+        () async => [_reportedSensor()],
+        ingestReading: (_, _, _) async => responses[call++],
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _selectSensor(tester, 'nox-analyzer-1');
+    await _ensureIngestVisible(tester);
+    await tester.enterText(
+      find.byKey(const Key('reading-value-field')),
+      '41.2',
+    );
+
+    await tester.tap(find.byKey(const Key('submit-reading')));
+    await tester.pumpAndSettle();
+    expect(find.text('duplicate'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('submit-reading')));
+    await tester.pumpAndSettle();
+    expect(find.text('conflict'), findsOneWidget);
+    expect(find.text('Existing value: 41.2 (valid).'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('submit-reading')));
+    await tester.pumpAndSettle();
+    expect(find.text('rejected'), findsOneWidget);
+    expect(find.text('value is required'), findsOneWidget);
+  });
+
+  testWidgets('disables Submit while ingestion is loading', (tester) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
+    final result = Completer<IngestResponse>();
+    await tester.pumpWidget(
+      _app(
+        () async => [_reportedSensor()],
+        ingestReading: (_, _, _) => result.future,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _selectSensor(tester, 'nox-analyzer-1');
+    await _ensureIngestVisible(tester);
+    await tester.enterText(
+      find.byKey(const Key('reading-value-field')),
+      '41.2',
+    );
+
+    await tester.tap(find.byKey(const Key('submit-reading')));
+    await tester.pump();
+
+    final button = tester.widget<FilledButton>(
+      find.byKey(const Key('submit-reading')),
+    );
+    expect(button.onPressed, isNull);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    result.complete(_storedResponse());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('shows a generic ingestion request error', (tester) async {
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
+    await tester.pumpWidget(
+      _app(
+        () async => [_reportedSensor()],
+        ingestReading: (_, _, _) async {
+          throw Exception('database unavailable');
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _selectSensor(tester, 'nox-analyzer-1');
+    await _ensureIngestVisible(tester);
+    await tester.enterText(
+      find.byKey(const Key('reading-value-field')),
+      '41.2',
+    );
+
+    await tester.tap(find.byKey(const Key('submit-reading')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Could not add reading.'), findsOneWidget);
+  });
 }
 
 Widget _app(
@@ -545,6 +757,7 @@ Widget _app(
   Future<List<Reading>> Function(String, DateTime, DateTime)? loadReadings,
   Future<List<SummaryBucket>> Function(String, DateTime, DateTime)?
   loadSummaries,
+  Future<IngestResponse> Function(String, DateTime, double)? ingestReading,
   DateTime Function() now = DateTime.now,
 }) {
   return MaterialApp(
@@ -552,13 +765,19 @@ Widget _app(
       loadSensors: loadSensors,
       loadReadings: loadReadings ?? (_, _, _) async => [],
       loadSummaries: loadSummaries ?? (_, _, _) async => [],
+      ingestReading: ingestReading ?? (_, _, _) async => _storedResponse(),
       now: now,
     ),
   );
 }
 
 Future<void> _selectSensor(WidgetTester tester, String sensorID) async {
-  await tester.tap(find.byKey(Key('sensor-card-$sensorID')));
+  final card = find.byKey(Key('sensor-card-$sensorID'));
+  if (card.evaluate().isEmpty) {
+    await tester.drag(find.byType(ListView), const Offset(0, 1200));
+    await tester.pumpAndSettle();
+  }
+  await tester.tap(card);
   await tester.pump();
   await tester.ensureVisible(find.byKey(const Key('query-readings')));
   await tester.pump();
@@ -568,6 +787,16 @@ Future<void> _selectSummary(WidgetTester tester) async {
   await tester.tap(find.text('Summary'));
   await tester.pump();
   await tester.ensureVisible(find.byKey(const Key('query-summary')));
+  await tester.pump();
+}
+
+Future<void> _ensureIngestVisible(WidgetTester tester) async {
+  final submit = find.byKey(const Key('submit-reading'));
+  if (submit.evaluate().isEmpty) {
+    await tester.drag(find.byType(ListView), const Offset(0, -1200));
+    await tester.pumpAndSettle();
+  }
+  await tester.ensureVisible(submit);
   await tester.pump();
 }
 
@@ -586,5 +815,31 @@ Sensor _reportedSensor() {
       value: 41.2,
       status: 'valid',
     ),
+  );
+}
+
+IngestResponse _storedResponse({String status = 'valid'}) {
+  return IngestResponse(
+    stored: 1,
+    duplicates: 0,
+    conflicts: 0,
+    rejected: 0,
+    results: [IngestResult(index: 0, outcome: 'stored', status: status)],
+  );
+}
+
+IngestResponse _ingestResponse(
+  IngestResult result, {
+  int stored = 0,
+  int duplicates = 0,
+  int conflicts = 0,
+  int rejected = 0,
+}) {
+  return IngestResponse(
+    stored: stored,
+    duplicates: duplicates,
+    conflicts: conflicts,
+    rejected: rejected,
+    results: [result],
   );
 }

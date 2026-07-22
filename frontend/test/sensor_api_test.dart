@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -170,6 +172,79 @@ void main() {
         'nox-analyzer-1',
         DateTime.parse('2026-07-20T14:00:00Z'),
         DateTime.parse('2026-07-20T15:00:00Z'),
+      ),
+      throwsFormatException,
+    );
+  });
+
+  test('posts one reading as a JSON array', () async {
+    final client = MockClient((request) async {
+      expect(request.method, 'POST');
+      expect(request.url.path, '/api/sensors/nox-analyzer-1/readings');
+      expect(request.headers['content-type'], 'application/json');
+      expect(jsonDecode(request.body), [
+        {'recorded_at': '2026-07-20T14:00:00.000Z', 'value': 41.2},
+      ]);
+      return http.Response('''
+        {
+          "stored": 1,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejected": 0,
+          "results": [{"index": 0, "outcome": "stored", "status": "valid"}]
+        }
+      ''', 200);
+    });
+
+    final response = await SensorApi(client).ingestReading(
+      'nox-analyzer-1',
+      DateTime.parse('2026-07-20T08:00:00-06:00'),
+      41.2,
+    );
+
+    expect(response.stored, 1);
+    expect(response.results.single.outcome, 'stored');
+  });
+
+  test('rejects a non-success ingestion response', () async {
+    final client = MockClient((_) async => http.Response('unavailable', 503));
+
+    expect(
+      SensorApi(client).ingestReading(
+        'nox-analyzer-1',
+        DateTime.parse('2026-07-20T14:00:00Z'),
+        41.2,
+      ),
+      throwsException,
+    );
+  });
+
+  test('rejects an invalid ingestion response shape', () async {
+    final client = MockClient((_) async => http.Response('[]', 200));
+
+    expect(
+      SensorApi(client).ingestReading(
+        'nox-analyzer-1',
+        DateTime.parse('2026-07-20T14:00:00Z'),
+        41.2,
+      ),
+      throwsFormatException,
+    );
+  });
+
+  test('rejects an ingestion response without one result', () async {
+    final client = MockClient(
+      (_) async => http.Response(
+        '{"stored":0,"duplicates":0,"conflicts":0,"rejected":0,"results":[]}',
+        200,
+      ),
+    );
+
+    expect(
+      SensorApi(client).ingestReading(
+        'nox-analyzer-1',
+        DateTime.parse('2026-07-20T14:00:00Z'),
+        41.2,
       ),
       throwsFormatException,
     );

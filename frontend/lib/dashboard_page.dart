@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'ingest.dart';
 import 'sensor.dart';
 import 'summary.dart';
 
@@ -13,6 +14,7 @@ class DashboardPage extends StatefulWidget {
     required this.loadSensors,
     required this.loadReadings,
     required this.loadSummaries,
+    required this.ingestReading,
     this.now = DateTime.now,
   });
 
@@ -20,6 +22,7 @@ class DashboardPage extends StatefulWidget {
   final Future<List<Reading>> Function(String, DateTime, DateTime) loadReadings;
   final Future<List<SummaryBucket>> Function(String, DateTime, DateTime)
   loadSummaries;
+  final Future<IngestResponse> Function(String, DateTime, double) ingestReading;
   final DateTime Function() now;
 
   @override
@@ -46,6 +49,12 @@ class _DashboardPageState extends State<DashboardPage> {
   bool _hasQueriedSummary = false;
   String? _summaryError;
   int _summaryRequestID = 0;
+  late final TextEditingController _recordedAtController;
+  late final TextEditingController _valueController;
+  bool _ingestLoading = false;
+  IngestResult? _ingestResult;
+  String? _ingestError;
+  int _ingestRequestID = 0;
 
   @override
   void initState() {
@@ -55,6 +64,8 @@ class _DashboardPageState extends State<DashboardPage> {
       text: to.subtract(const Duration(hours: 24)).toIso8601String(),
     );
     _toController = TextEditingController(text: to.toIso8601String());
+    _recordedAtController = TextEditingController(text: to.toIso8601String());
+    _valueController = TextEditingController();
     _load();
     _refreshTimer = Timer.periodic(_refreshInterval, (_) => _load());
   }
@@ -64,6 +75,8 @@ class _DashboardPageState extends State<DashboardPage> {
     _refreshTimer?.cancel();
     _fromController.dispose();
     _toController.dispose();
+    _recordedAtController.dispose();
+    _valueController.dispose();
     super.dispose();
   }
 
@@ -147,6 +160,8 @@ class _DashboardPageState extends State<DashboardPage> {
         ),
         const SizedBox(height: 24),
         _buildDetailSection(),
+        const SizedBox(height: 24),
+        _buildIngestSection(),
       ],
     );
   }
@@ -159,7 +174,9 @@ class _DashboardPageState extends State<DashboardPage> {
       _selectedSensorID = sensorID;
       _readingRequestID++;
       _summaryRequestID++;
+      _ingestRequestID++;
       _clearQueryResults();
+      _clearIngestResult();
     });
   }
 
@@ -172,6 +189,12 @@ class _DashboardPageState extends State<DashboardPage> {
     _summaryLoading = false;
     _hasQueriedSummary = false;
     _summaryError = null;
+  }
+
+  void _clearIngestResult() {
+    _ingestLoading = false;
+    _ingestResult = null;
+    _ingestError = null;
   }
 
   Sensor? get _selectedSensor {
@@ -474,10 +497,164 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
     );
   }
+
+  Future<void> _submitReading() async {
+    final sensor = _selectedSensor;
+    if (sensor == null || _ingestLoading) {
+      return;
+    }
+
+    final recordedAtText = _recordedAtController.text.trim();
+    if (recordedAtText.isEmpty) {
+      setState(() => _ingestError = 'Recorded at is required.');
+      return;
+    }
+    final recordedAt = _parseRFC3339(recordedAtText);
+    if (recordedAt == null) {
+      setState(
+        () => _ingestError = 'Recorded at must be a valid RFC3339 timestamp.',
+      );
+      return;
+    }
+
+    final valueText = _valueController.text.trim();
+    if (valueText.isEmpty) {
+      setState(() => _ingestError = 'Value is required.');
+      return;
+    }
+    final value = double.tryParse(valueText);
+    if (value == null || !value.isFinite) {
+      setState(() => _ingestError = 'Value must be a finite number.');
+      return;
+    }
+
+    final requestID = ++_ingestRequestID;
+    setState(() {
+      _ingestLoading = true;
+      _ingestResult = null;
+      _ingestError = null;
+    });
+
+    try {
+      final response = await widget.ingestReading(sensor.id, recordedAt, value);
+      if (!mounted || requestID != _ingestRequestID) {
+        return;
+      }
+      setState(() {
+        _ingestLoading = false;
+        _ingestResult = response.results.single;
+      });
+    } catch (_) {
+      if (!mounted || requestID != _ingestRequestID) {
+        return;
+      }
+      setState(() {
+        _ingestLoading = false;
+        _ingestError = 'Could not add reading.';
+      });
+    }
+  }
+
+  Widget _buildIngestSection() {
+    final sensor = _selectedSensor;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Add reading', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 16),
+            if (sensor == null)
+              const Text('Select a sensor to add a reading.')
+            else
+              Text(sensor.name, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SizedBox(
+                  width: 320,
+                  child: TextField(
+                    key: const Key('recorded-at-field'),
+                    controller: _recordedAtController,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Recorded at (RFC3339 UTC)',
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 220,
+                  child: TextField(
+                    key: const Key('reading-value-field'),
+                    controller: _valueController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                      signed: true,
+                    ),
+                    decoration: InputDecoration(
+                      border: const OutlineInputBorder(),
+                      labelText: sensor == null
+                          ? 'Value'
+                          : 'Value (${sensor.unit})',
+                    ),
+                  ),
+                ),
+                FilledButton(
+                  key: const Key('submit-reading'),
+                  onPressed: sensor == null || _ingestLoading
+                      ? null
+                      : _submitReading,
+                  child: const Text('Submit'),
+                ),
+              ],
+            ),
+            if (sensor != null) ...[
+              const SizedBox(height: 16),
+              if (_ingestError != null)
+                Text(
+                  _ingestError!,
+                  key: const Key('ingest-error'),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                )
+              else if (_ingestLoading)
+                const Center(child: CircularProgressIndicator())
+              else if (_ingestResult != null)
+                Wrap(
+                  spacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _Badge(
+                      label: _ingestResult!.outcome,
+                      color: _outcomeColor(_ingestResult!.outcome),
+                    ),
+                    if (_ingestDetail(_ingestResult!) != null)
+                      Text(_ingestDetail(_ingestResult!)!),
+                  ],
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 String _statistic(double? value, String unit) {
   return value == null ? '—' : '$value $unit';
+}
+
+String? _ingestDetail(IngestResult result) {
+  if (result.outcome == 'conflict' && result.existingValue != null) {
+    return 'Existing value: ${result.existingValue} (${result.status}).';
+  }
+  if (result.outcome == 'rejected') {
+    return result.error;
+  }
+  return result.status;
 }
 
 final _rfc3339Pattern = RegExp(
@@ -602,6 +779,16 @@ Color _statusColor(String status) {
   return switch (status) {
     'valid' => Colors.green.shade700,
     'out_of_range' => Colors.red.shade700,
+    _ => Colors.blueGrey.shade600,
+  };
+}
+
+Color _outcomeColor(String outcome) {
+  return switch (outcome) {
+    'stored' => Colors.green.shade700,
+    'duplicate' => Colors.blueGrey.shade600,
+    'conflict' => Colors.orange.shade800,
+    'rejected' => Colors.red.shade700,
     _ => Colors.blueGrey.shade600,
   };
 }
